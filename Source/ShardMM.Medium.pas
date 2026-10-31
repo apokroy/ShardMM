@@ -344,14 +344,19 @@ begin
     chunk := FindFree(need);
   end;
   csize := chunk.SizeFlags and SizeMask;
-  RemoveFree(chunk, csize);
   arena := MediumArenaOf(chunk);
+  // Commit before the chunk leaves its bin: a failed commit raises, and a chunk flagged free but outside
+  // the bins would corrupt the bins when a neighbour is freed later
+  if csize - need >= MediumMinSplit then
+    // the header of the remainder follows the allocated part: commit up to it and its links
+    EnsureCommitted(arena, NativeUInt(chunk) + need + SizeOf(TMediumChunk))
+  else
+    EnsureCommitted(arena, NativeUInt(chunk) + csize);
+  RemoveFree(chunk, csize);
   if csize - need >= MediumMinSplit then
   begin
-    // the header of the remainder follows the allocated part: commit up to it and its links
     rest := PMediumChunk(NativeUInt(chunk) + need);
     rsize := csize - need;
-    EnsureCommitted(arena, NativeUInt(rest) + SizeOf(TMediumChunk));
     rest.PrevSize := need;
     rest.SizeFlags := rsize or ChunkFree;
     next := PMediumChunk(NativeUInt(rest) + rsize);
@@ -359,9 +364,7 @@ begin
       next.PrevSize := rsize;
     InsertFree(rest, rsize);
     csize := need;
-  end
-  else
-    EnsureCommitted(arena, NativeUInt(chunk) + csize);
+  end;
   chunk.SizeFlags := csize;
   Inc(arena.Used);
   Result := Pointer(NativeUInt(chunk) + MediumHeaderSize);
@@ -456,12 +459,16 @@ begin
   total := csize + nsize;
   if total < need then
     Exit(False);
-  RemoveFree(next, nsize);
   rsize := total - need;
+  // Commit before the neighbour leaves its bin (see Alloc)
+  if rsize >= MediumMinSplit then
+    EnsureCommitted(arena, NativeUInt(chunk) + need + SizeOf(TMediumChunk))
+  else
+    EnsureCommitted(arena, NativeUInt(chunk) + total);
+  RemoveFree(next, nsize);
   if rsize >= MediumMinSplit then
   begin
     rest := PMediumChunk(NativeUInt(chunk) + need);
-    EnsureCommitted(arena, NativeUInt(rest) + SizeOf(TMediumChunk));
     rest.PrevSize := need;
     rest.SizeFlags := rsize or ChunkFree;
     next := PMediumChunk(NativeUInt(rest) + rsize);
@@ -472,7 +479,6 @@ begin
   end
   else
   begin
-    EnsureCommitted(arena, NativeUInt(chunk) + total);
     next := PMediumChunk(NativeUInt(chunk) + total);
     if NativeUInt(next) < ArenaEnd(arena) then
       next.PrevSize := total;

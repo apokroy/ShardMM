@@ -32,6 +32,8 @@ function FlsAlloc(Callback: Pointer): Cardinal; stdcall; external Kernel32Dll;
 function FlsSetValue(Index: Cardinal; Value: Pointer): LongBool; stdcall; external Kernel32Dll;
 function GetTickCount: Cardinal; stdcall; external Kernel32Dll;
 procedure AcquireSRWLockExclusive(var Lock: Pointer); stdcall; external Kernel32Dll;
+/// BOOLEAN: nonzero - the lock is taken
+function TryAcquireSRWLockExclusive(var Lock: Pointer): ByteBool; stdcall; external Kernel32Dll;
 procedure ReleaseSRWLockExclusive(var Lock: Pointer); stdcall; external Kernel32Dll;
 
 /// Windows interrupt time in 100 ns units since boot. The KUSER_SHARED_DATA page is mapped read-only

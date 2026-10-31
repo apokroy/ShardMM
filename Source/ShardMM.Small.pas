@@ -441,11 +441,18 @@ end;
 
 { TSmallHeap }
 
+// A thread that keeps allocating but has stopped freeing pages would keep its aged free pages committed
+// until the next FreePage: they are trimmed here too. A page whose memory cannot be committed goes back
+// where it was taken from before OutOfMemory, so neither its descriptor nor its addresses are lost
 function TSmallHeap.NewPage(aClass: PSmallClass): PSmallPage;
 var
   page: PSmallPage;
+  fromDecommitted: Boolean;
 begin
+  if FFreePageCount > SmallFreePagesCommitted then
+    TrimFreePages(SmallDecommitDelay, SmallFreePagesCommitted);
   // a recently freed committed page first, then one returned to the system, then a new one
+  fromDecommitted := False;
   page := FFreePages;
   if page <> nil then
   begin
@@ -460,6 +467,7 @@ begin
   begin
     page := FDecommitted;
     FDecommitted := page.FNext;
+    fromDecommitted := True;
   end
   else
   begin
@@ -478,7 +486,16 @@ begin
   if page.FCommitted = 0 then
   begin
     if VirtualAlloc(Pointer(page.FData), SmallPageSize, MemCommit, PageReadWrite) = nil then
+    begin
+      if fromDecommitted then
+      begin
+        page.FNext := FDecommitted;
+        FDecommitted := page;
+      end
+      else
+        Dec(FSegmentNext);
       OutOfMemory;
+    end;
     page.FCommitted := 1;
   end;
   page.FHeap := @Self;

@@ -59,7 +59,7 @@ begin
 end;
 
 // Twice the size is reserved and the aligned part is used: the rest is address space only, without
-// committed memory
+// committed memory. A failed commit or kinds table gives the reservation back before OutOfMemory
 function AllocSegment(aKind: Byte; aCommit: NativeUInt): Pointer;
 var
   raw, seg, hi: NativeUInt;
@@ -70,7 +70,10 @@ begin
     OutOfMemory;
   seg := (raw + SegmentSize - 1) and not (SegmentSize - 1);
   if VirtualAlloc(Pointer(seg), aCommit, MemCommit, PageReadWrite) = nil then
+  begin
+    VirtualFree(Pointer(raw), 0, MemRelease);
     OutOfMemory;
+  end;
 
   hi := (seg shr 32) and High(SegmentMap);
   kinds := SegmentMap[hi];
@@ -78,7 +81,10 @@ begin
   begin
     kinds := VirtualAlloc(nil, SizeOf(TSegmentKinds), MemCommit, PageReadWrite);
     if kinds = nil then
+    begin
+      VirtualFree(Pointer(raw), 0, MemRelease);
       OutOfMemory;
+    end;
     prev := AtomicCmpExchange(Pointer(SegmentMap[hi]), Pointer(kinds), Pointer(@NoSegments));
     if prev <> @NoSegments then
     begin

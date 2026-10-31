@@ -154,8 +154,13 @@ begin
   until CAS128(GPool^, NativeUInt(old.Top), old.Tag, 0, old.Tag + 1);
   first := old.Top;
   last := first;
+  // The heaps taken off the stack belong to this thread until they go back: it drains their foreign-free
+  // queues as their owner, so blocks other threads freed into a heap nobody takes are returned too, and
+  // pages and arenas they emptied are trimmed with the rest
   while True do
   begin
+    last.SmallHeap.CollectThreadFree;
+    last.MediumHeap.ProcessThreadFree;
     last.SmallHeap.TrimFreePages(0, SmallFreePagesCommitted);
     last.MediumHeap.TrimEmptyArenas(0, MediumEmptyArenasCommitted);
     if last.NextFree = nil then

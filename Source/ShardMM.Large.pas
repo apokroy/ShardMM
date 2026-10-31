@@ -231,6 +231,10 @@ begin
   ReleaseBlocks(expired, n);
 end;
 
+// The expiry is opportunistic, so the lock is only tried: LargeCacheExpire runs in the FLS callback of an
+// exiting thread, and Windows runs that callback in ExitProcess too, after the other threads are killed -
+// one of them may have been killed inside CacheTake or CachePut holding the lock, and waiting for it would
+// hang the exit forever. A busy lock means another thread is in the cache and checks the age itself
 procedure LargeCacheExpire;
 var
   expired: TLargeBlockList;
@@ -244,7 +248,8 @@ begin
   if tick - LargeCache[0].Tick < LargeCacheDelay then
     Exit;
   n := 0;
-  AcquireSRWLockExclusive(LargeCacheLock);
+  if not TryAcquireSRWLockExclusive(LargeCacheLock) then
+    Exit;
   CacheExpire(tick, expired, n);
   ReleaseSRWLockExclusive(LargeCacheLock);
   ReleaseBlocks(expired, n);
