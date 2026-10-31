@@ -374,10 +374,12 @@ end;
 // In place: a small block while the new size is within its class and not below a quarter of it; a
 // medium block of the own thread - always when shrinking, and when growing if a free chunk follows;
 // a large block - within its reservation (one shrunk by no more than half is left alone). Otherwise
-// the block moves, with headroom when growing: a quarter plus 32 bytes for small blocks, a quarter
-// for medium ones, 1/16 for large ones. Without the 32 bytes a short string appended character by
+// the block moves, with headroom when growing: a half plus 32 bytes for small blocks, a quarter for
+// medium ones, 1/16 for large ones. Without the 32 bytes a short string appended character by
 // character moves to the next class on every step, and XPath over a libxml2 DOM (LX2Bench) runs 8 %
-// longer. A small block that stays in place never gets here: ShardReallocMem answers it
+// longer; with a quarter instead of a half a string grown by concatenation moves twice as often and
+// the AppBench concat scenario runs 4-5 % longer, for 2-5 % less memory held. A small block that
+// stays in place never gets here: ShardReallocMem answers it
 function ReallocMemSlow(aMemory: Pointer; aSize: NativeInt): Pointer;
 var
   size, oldsize, grown: NativeUInt;
@@ -428,7 +430,7 @@ begin
   grown := size;
   if size > oldsize then
     if size <= SmallMaxSize then
-      Inc(grown, size shr 2 + 32)
+      Inc(grown, size shr 1 + 32)
     else if size <= MediumMaxSize then
       Inc(grown, size shr 2)
     else

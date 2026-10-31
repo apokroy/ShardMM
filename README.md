@@ -235,10 +235,12 @@ Blocks above 1 MB.
 In place: a small block while the new size is within its class and not below a quarter of it (the
 fast path, above); a medium block of the own thread - always when shrinking, and when growing if a
 free chunk follows; a large block - within its reservation (one shrunk by no more than half is left
-alone). Otherwise the block moves, with headroom when growing: a quarter plus 32 bytes for small
-blocks, a quarter for medium ones, 1/16 for large ones. Without the 32 bytes a short string appended
+alone). Otherwise the block moves, with headroom when growing: a half plus 32 bytes for small blocks,
+a quarter for medium ones, 1/16 for large ones. Without the 32 bytes a short string appended
 character by character moves to the next class on every step (16 → 32 → 64 → 96 ...), and XPath over
-a libxml2 DOM ran 8 % longer (81.7 against 75.3 ms).
+a libxml2 DOM ran 8 % longer (81.7 against 75.3 ms). With a quarter instead of a half a string grown
+by concatenation moves twice as often: AppBench `concat` ran 4-5 % longer and `arrays` 1-2 %, for
+2-5 % less memory held in `concat`, `json` and `objects`.
 
 ## Known behaviour
 

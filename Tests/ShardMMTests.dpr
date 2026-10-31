@@ -717,7 +717,7 @@ begin
   DropBlock(B, 'growth by one byte');
   Writeln(Format('  growth by one byte to 70000 bytes moved the block %d times', [Moves]));
 {$IFNDEF MM_RTL}
-  // the headroom of a move: a quarter plus 32 bytes for small blocks, a quarter for medium ones
+  // the headroom of a move: a half plus 32 bytes for small blocks, a quarter for medium ones
   Check(Moves <= 64, 'too many moves on growth by one byte');
 {$ENDIF}
 
@@ -790,7 +790,7 @@ begin
     P := Q;
     ReallocMem(Q, C + 1);
     Check(Q <> P, Format('class %d: growth beyond the class kept the block in place', [C]));
-    Grown := C + 1 + (C + 1) shr 2 + 32;
+    Grown := C + 1 + (C + 1) shr 1 + 32;
     if Grown <= SmallMaxSize then
       Check(SmallPageOf(Q).FItemSize = NativeUInt(ExpectedClass(Grown)),
         Format('class %d: growth to %d went to class %d, not %d with the headroom',
