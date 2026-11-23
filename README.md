@@ -7,6 +7,14 @@ assembler fast paths for the common case. MIT licensed.
 
 Requirements: Delphi 13 (tested with 13.2), Win64. Other platforms stop with a compile-time error.
 
+## Status
+
+Version 1.0.0 is the first stable release. ShardMM has been the memory manager of production
+Win64 servers and desktop applications for several weeks, and this release is the code that ran
+there, so it is proven in production use and not only by the tests and benchmarks described below.
+The public interface (`ShardGetMem`, `ShardFreeMem`, `ShardReallocMem`, `ShardAllocMem` and the
+installation through the `uses` clause) is considered stable.
+
 ## Usage
 
 Put `ShardMM` first in the `uses` clause of the program, before any unit that allocates memory:
