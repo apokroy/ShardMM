@@ -25,7 +25,13 @@ const
   KUserInterruptTime = $7FFE0008;
 
 function VirtualAlloc(Address: Pointer; Size: NativeUInt; AllocationType, Protect: Cardinal): Pointer; stdcall; external Kernel32Dll;
+{$IFDEF ShardMM_ClearBeforeReturningToOS}
+/// VirtualFree that first zeroes the committed read-write pages of the range (of the whole region
+/// for size 0)
+function VirtualFree(Address: Pointer; Size: NativeUInt; FreeType: Cardinal): LongBool;
+{$ELSE}
 function VirtualFree(Address: Pointer; Size: NativeUInt; FreeType: Cardinal): LongBool; stdcall; external Kernel32Dll;
+{$ENDIF}
 function TlsAlloc: Cardinal; stdcall; external Kernel32Dll;
 function TlsSetValue(Index: Cardinal; Value: Pointer): LongBool; stdcall; external Kernel32Dll;
 function FlsAlloc(Callback: Pointer): Cardinal; stdcall; external Kernel32Dll;
@@ -96,5 +102,66 @@ procedure InvalidPointer;
 begin
   System.Error(TRuntimeError.reInvalidPtr);
 end;
+
+{$IFDEF ShardMM_ClearBeforeReturningToOS}
+type
+  /// MEMORY_BASIC_INFORMATION
+  TMemoryInfo = record
+    BaseAddress: Pointer;
+    AllocationBase: Pointer;
+    AllocationProtect: Cardinal;
+    PartitionId: Word;
+    RegionSize: NativeUInt;
+    State: Cardinal;
+    Protect: Cardinal;
+    Kind: Cardinal;
+  end;
+
+function VirtualQuery(Address: Pointer; var Info: TMemoryInfo; Length: NativeUInt): NativeUInt; stdcall; external Kernel32Dll;
+function SystemVirtualFree(Address: Pointer; Size: NativeUInt; FreeType: Cardinal): LongBool; stdcall; external Kernel32Dll name 'VirtualFree';
+
+// Windows zeroes a page before it gives the page to another process, but nobody knows when; until
+// then the data of freed blocks stays in physical memory. Only committed read-write pages are
+// written: the range of a large block covers address space reserved for its growth, and a write
+// there would fault. A committed page the program never touched becomes resident while it is
+// zeroed - the price of the option for large blocks committed ahead of their use
+function VirtualFree(Address: Pointer; Size: NativeUInt; FreeType: Cardinal): LongBool;
+var
+  info: TMemoryInfo;
+  base: Pointer;
+  first: Boolean;
+  addr, last, next: NativeUInt;
+begin
+  addr := NativeUInt(Address);
+  if Size = 0 then
+    last := High(NativeUInt)
+  else
+    last := addr + Size;
+  base := nil;
+  first := True;
+  // the walk stops at the end of the range or of the reservation it started in
+  while (addr < last) and (VirtualQuery(Pointer(addr), info, SizeOf(info)) = SizeOf(info)) do
+  begin
+    if first then
+    begin
+      base := info.AllocationBase;
+      first := False;
+    end
+    else if info.AllocationBase <> base then
+      Break;
+    next := NativeUInt(info.BaseAddress) + info.RegionSize;
+    if next > last then
+      next := last;
+    if (info.State = MemCommit) and (info.Protect = PageReadWrite) then
+      FillChar(Pointer(addr)^, next - addr, 0);
+    addr := next;
+  end;
+  Result := SystemVirtualFree(Address, Size, FreeType);
+end;
+
+{$IF SizeOf(TMemoryInfo) <> 48}
+  {$MESSAGE ERROR 'TMemoryInfo must match MEMORY_BASIC_INFORMATION of Win64'}
+{$IFEND}
+{$ENDIF}
 
 end.

@@ -47,6 +47,33 @@ Bench\AppBench.ps1           builds the variants and runs them interleaved
 
 Every unit starts with a comment on how its part works; this file is the overview.
 
+### Options for sensitive data
+
+Two conditional symbols, both off by default; without them the code is compiled exactly as without
+this section. Set them in the project options (`DCC_Define`, `-D` on the command line): a
+`{$DEFINE}` in the `.dpr` does not reach the units. A change of the symbols needs a full build
+(`-B`), since an incremental one keeps the compiled units of the other setting.
+
+- `ShardMM_ClearBeforeReturningToOS` - memory is zeroed before it goes back to the system
+  (`MEM_DECOMMIT`, `MEM_RELEASE`). Windows zeroes a page before it gives the page to another process,
+  but not at once; until then the data stays in physical memory. Only committed read-write pages are
+  written; a committed page the program never touched becomes resident while it is zeroed. The cost
+  falls on the slow paths: a small-block page or a medium arena that stayed free for a second, the
+  exit of a thread, a large block leaving the cache. What the option leaves out: memory still held
+  by the manager (free pages, empty arenas and the large-block cache, see Known behaviour), the
+  memory of the process at its exit, and pages the system has written to the page file or to the
+  hibernation file. In AppBench the option costs nothing measurable: the geometric mean of the
+  scenarios is within 1 % of the build without it, which is the noise of the benchmark.
+- `ShardMM_ClearFreedMemory` - every block is zeroed when it is freed, before it reaches any list,
+  and a block that shrinks in place zeroes its tail; the fast path of `ReallocMem` is off, every
+  reallocation takes the slow one. Freed data no longer waits in the manager's free memory, and
+  copies of a string that the program cannot reach (left behind by concatenation or copy-on-write)
+  are cleared too. A free block keeps only the links of the free lists, which are addresses inside
+  the heap. In AppBench (eight E-cores, 1 and 8 threads, five interleaved runs) the whole scenario
+  runs 20-23 % longer as a geometric mean, from 6 % in `interfaces` to 40-47 % in `concat` and
+  `arrays`, where every reallocation takes the slow path; the peak memory does not change. With it,
+  `ShardMM_ClearBeforeReturningToOS` adds nothing that matters.
+
 ## Design
 
 ### Thread heaps

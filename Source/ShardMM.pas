@@ -314,8 +314,45 @@ asm
   add qword ptr [rdx + TSmallPage.FUsed], 1
 end;
 
-// Fast path: a small block of the own thread - the item goes to FLocalFree of its page
+{$IFDEF ShardMM_ClearFreedMemory}
+function ShardFreeMemFast(aMemory: Pointer): Integer; forward;
+
+// Bytes of a live block that may hold the caller's data: the whole item of a small block, the
+// usable part of a medium or a large one. A medium chunk already marked free gives 0 - its first
+// bytes are the links of the free bins, and FreeMemSlow reports the second free
+function ClearableSize(aMemory: Pointer): NativeUInt;
+begin
+  case SegmentKindOf(aMemory) of
+    SegmentKindSmall:
+      Result := SmallPageOf(aMemory).FItemSize;
+    SegmentKindMedium:
+      if PMediumChunk(NativeUInt(aMemory) - MediumHeaderSize).SizeFlags and not MediumSizeMask <> 0 then
+        Result := 0
+      else
+        Result := MediumSizeOf(aMemory);
+  else
+    Result := LargeSizeOf(aMemory);
+  end;
+end;
+
+// The block is zeroed before it reaches any list: from there its owner or another thread may hand
+// it out again. The links written over its first bytes afterwards are addresses inside the heap.
+// The bytes of a large block beyond its usable size are zero already: a fresh commit is zeroed by
+// the system, and a block shrinking in place zeroes its tail (ReallocMemSlow)
 function ShardFreeMem(aMemory: Pointer): Integer;
+begin
+  if aMemory <> nil then
+    FillChar(aMemory^, ClearableSize(aMemory), 0);
+  Result := ShardFreeMemFast(aMemory);
+end;
+{$ENDIF}
+
+// Fast path: a small block of the own thread - the item goes to FLocalFree of its page
+{$IFDEF ShardMM_ClearFreedMemory}
+function ShardFreeMemFast(aMemory: Pointer): Integer;
+{$ELSE}
+function ShardFreeMem(aMemory: Pointer): Integer;
+{$ENDIF}
 asm
   .noframe
   // segment map: not a small block (or nil) - the slow path
@@ -393,6 +430,13 @@ begin
     Exit(nil);
   end;
   size := aSize;
+{$IFDEF ShardMM_ClearFreedMemory}
+  // A block that keeps its place when shrinking leaves the tail beyond the new size in itself (small
+  // and large blocks) or in the free bins (medium ones): the tail is zeroed like a freed block
+  oldsize := ClearableSize(aMemory);
+  if size < oldsize then
+    FillChar(PByte(aMemory)[size], oldsize - size, 0);
+{$ENDIF}
   case SegmentKindOf(aMemory) of
     SegmentKindSmall:
       begin
@@ -454,6 +498,10 @@ end;
 function ShardReallocMem(aMemory: Pointer; aSize: NativeInt): Pointer;
 asm
   .noframe
+{$IFDEF ShardMM_ClearFreedMemory}
+  // the slow path zeroes the tail a block leaves behind when it shrinks in place
+  jmp ReallocMemSlow
+{$ENDIF}
   // nil and a size not above zero - the slow path allocates or frees
   test rcx, rcx
   jz ReallocMemSlow
